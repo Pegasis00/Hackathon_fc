@@ -1,0 +1,56 @@
+{
+  "numeric_features": [
+    "age",
+    "monthly_income",
+    "city",
+    "total_sessions",
+    "num_product_page_visits",
+    "avg_time_on_product",
+    "late_night_session_ratio",
+    "total_purchases",
+    "total_spent",
+    "avg_purchase_value",
+    "avg_discount_used",
+    "impulse_purchase_ratio",
+    "past_impulse_purchases",
+    "avg_minutes_to_purchase",
+    "stress_level",
+    "mood_last_week",
+    "saving_habit_score"
+  ],
+  "categorical_features": [],
+  "all_features": [
+    "age",
+    "monthly_income",
+    "city",
+    "total_sessions",
+    "num_product_page_visits",
+    "avg_time_on_product",
+    "late_night_session_ratio",
+    "total_purchases",
+    "total_spent",
+    "avg_purchase_value",
+    "avg_discount_used",
+    "impulse_purchase_ratio",
+    "past_impulse_purchases",
+    "avg_minutes_to_purchase",
+    "stress_level",
+    "mood_last_week",
+    "saving_habit_score"
+  ],
+  "mood_mapping": {
+    "Happy": 1,
+    "Neutral": 2,
+    "Anxious": 3,
+    "Sad": 4
+  },
+  "city_mapping": {
+    "Delhi": 1,
+    "Mumbai": 2,
+    "Bengaluru": 3,
+    "Kolkata": 4,
+    "Chennai": 5,
+    "Pune": 6,
+    "Hyderabad": 7
+  }
+}
