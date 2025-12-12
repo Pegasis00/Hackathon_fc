@@ -14,7 +14,6 @@ import plotly.express as px
 
 BASE_DIR = Path(__file__).resolve().parent
 
-
 # Page config
 st.set_page_config(
     page_title="Impulse Buying Predictor",
@@ -157,6 +156,75 @@ def create_comparison_chart(user_score):
     return fig
 
 
+# ---------- Robust input alignment & predict wrapper ----------
+def prepare_input_for_model(input_df, model):
+    """
+    Align single-row input_df to model expected features.
+    - If model exposes feature_names_in_, use it.
+    - Otherwise, try to extract from a pipeline with a ColumnTransformer.
+    - Fill missing numeric features with 0 (or sensible default).
+    - Cast to numeric where possible.
+    """
+    expected_features = None
+    # 1) try model.feature_names_in_
+    try:
+        expected_features = list(getattr(model, "feature_names_in_", None))
+        if expected_features == [None] or expected_features == []:
+            expected_features = None
+    except Exception:
+        expected_features = None
+
+    # 2) try to introspect a ColumnTransformer inside a pipeline
+    if expected_features is None:
+        try:
+            from sklearn.compose import ColumnTransformer
+            for step_name, step in getattr(model, "steps", []):
+                if isinstance(step, ColumnTransformer):
+                    cols = []
+                    for name, trans, cols_or_slice in step.transformers_:
+                        if isinstance(cols_or_slice, (list, tuple)):
+                            cols.extend(list(cols_or_slice))
+                    if cols:
+                        expected_features = cols
+                        break
+        except Exception:
+            expected_features = None
+
+    # 3) try feature_info.json in models/
+    if expected_features is None:
+        try:
+            fi = BASE_DIR / "models" / "feature_info.json"
+            if fi.exists():
+                j = json.loads(fi.read_text())
+                expected_features = j.get("feature_names", None)
+        except Exception:
+            expected_features = None
+
+    # If still unknown, fallback to input columns
+    if not expected_features:
+        return input_df.copy()
+
+    # Align DataFrame
+    X = input_df.copy()
+
+    # Add missing features with default 0
+    for f in expected_features:
+        if f not in X.columns:
+            X[f] = 0
+
+    # Reorder
+    X = X[expected_features]
+
+    # Try to coerce numeric types where appropriate
+    for col in X.columns:
+        try:
+            X[col] = pd.to_numeric(X[col], errors="ignore")
+        except Exception:
+            pass
+
+    return X
+
+
 def main():
     # Header
     st.markdown('<div class="main-header">🛒 Impulse Buying Predictor</div>', unsafe_allow_html=True)
@@ -238,88 +306,100 @@ def show_prediction_page(model, feature_info):
     
     # Create input dataframe
     input_data = pd.DataFrame({
-    'age': [age],
-    'monthly_income': [monthly_income],
-    'city': [city_map[city]],
-    'total_sessions': [total_sessions],
-    'num_product_page_visits': [num_product_page_visits],
-    'avg_time_on_product': [avg_time_on_product],
-    'late_night_session_ratio': [late_night_session_ratio],
-    'total_purchases': [total_purchases],
-    'total_spent': [total_purchases * avg_purchase_value],  # ← ADD THIS
-    'avg_purchase_value': [avg_purchase_value],
-    'avg_discount_used': [avg_discount_used],
-    'impulse_purchase_ratio': [impulse_purchase_ratio],
-    'past_impulse_purchases': [past_impulse_purchases],
-    'avg_minutes_to_purchase': [avg_minutes_to_purchase],
-    'stress_level': [stress_level],
-    'mood_last_week': [mood_map[mood]],
-    'saving_habit_score': [saving_habit_score]
-})
+        'age': [age],
+        'monthly_income': [monthly_income],
+        'city': [city_map[city]],
+        'total_sessions': [total_sessions],
+        'num_product_page_visits': [num_product_page_visits],
+        'avg_time_on_product': [avg_time_on_product],
+        'late_night_session_ratio': [late_night_session_ratio],
+        'total_purchases': [total_purchases],
+        'total_spent': [total_purchases * avg_purchase_value],
+        'avg_purchase_value': [avg_purchase_value],
+        'avg_discount_used': [avg_discount_used],
+        'impulse_purchase_ratio': [impulse_purchase_ratio],
+        'past_impulse_purchases': [past_impulse_purchases],
+        'avg_minutes_to_purchase': [avg_minutes_to_purchase],
+        'stress_level': [stress_level],
+        'mood_last_week': [mood_map[mood]],
+        'saving_habit_score': [saving_habit_score]
+    })
+
     # Predict button
     if st.button("🔮 Predict Impulse Score", type="primary", use_container_width=True):
         with st.spinner("Analyzing customer behavior..."):
-            prediction = model.predict(input_data)[0]
-            prediction = np.clip(prediction, 0, 100)
-            
-            # Display results
-            st.markdown("---")
-            st.subheader("Prediction Results")
-            
-            risk_cat, emoji, color = get_risk_category(prediction)
-            
-            col1, col2 = st.columns([1, 1])
-            
-            with col1:
-                st.markdown(f'<div class="prediction-box" style="background: linear-gradient(135deg, {color} 0%, {color}CC 100%);">'
-                           f'{emoji} {prediction:.1f}/100<br><small style="font-size: 1rem;">Impulse Buy Score</small></div>',
-                           unsafe_allow_html=True)
-                
-                st.markdown(f"**Risk Category:** {risk_cat} {emoji}")
-                
-                # Recommendations
-                st.markdown("### 💡 Recommendations")
-                if risk_cat == "High":
-                    st.error("⚠️ **High Risk Customer**")
-                    st.write("- Implement purchase cooldown periods")
-                    st.write("- Show savings progress reminders")
-                    st.write("- Limit flash sale notifications")
-                elif risk_cat == "Medium":
-                    st.warning("⚠️ **Moderate Risk Customer**")
-                    st.write("- Send thoughtful product recommendations")
-                    st.write("- Highlight value propositions")
-                    st.write("- Provide comparison tools")
+            try:
+                Xp = prepare_input_for_model(input_data, model)
+
+                # final safety: ensure shape (1, n_features)
+                if Xp.shape[0] != 1:
+                    st.error("Internal error: input shaped incorrectly for prediction.")
                 else:
-                    st.success("✅ **Low Risk Customer**")
-                    st.write("- Can receive promotional emails")
-                    st.write("- Good candidate for loyalty programs")
-                    st.write("- Show premium product recommendations")
-            
-            with col2:
-                st.plotly_chart(create_gauge_chart(prediction), use_container_width=True)
-                
-            # Comparison chart
-            st.plotly_chart(create_comparison_chart(prediction), use_container_width=True)
-            
-            # Feature importance
-            st.markdown("### 📊 Key Factors")
-            factors = {
-                "Past Impulse Behavior": impulse_purchase_ratio * 100,
-                "Discount Usage": avg_discount_used,
-                "Stress Level": stress_level * 10,
-                "Late Night Activity": late_night_session_ratio * 100,
-                "Purchase Speed": max(0, 100 - avg_minutes_to_purchase / 5)
-            }
-            
-            fig = px.bar(
-                x=list(factors.values()),
-                y=list(factors.keys()),
-                orientation='h',
-                labels={'x': 'Impact Score', 'y': 'Factor'},
-                title="Contributing Factors"
-            )
-            fig.update_traces(marker_color='#2196F3')
-            st.plotly_chart(fig, use_container_width=True)
+                    prediction = model.predict(Xp)[0]
+                    prediction = np.clip(prediction, 0, 100)
+                    
+                    # Display results
+                    st.markdown("---")
+                    st.subheader("Prediction Results")
+                    
+                    risk_cat, emoji, color = get_risk_category(prediction)
+                    
+                    col1, col2 = st.columns([1, 1])
+                    
+                    with col1:
+                        st.markdown(f'<div class="prediction-box" style="background: linear-gradient(135deg, {color} 0%, {color}CC 100%);">'
+                                    f'{emoji} {prediction:.1f}/100<br><small style="font-size: 1rem;">Impulse Buy Score</small></div>',
+                                    unsafe_allow_html=True)
+                        
+                        st.markdown(f"**Risk Category:** {risk_cat} {emoji}")
+                        
+                        # Recommendations
+                        st.markdown("### 💡 Recommendations")
+                        if risk_cat == "High":
+                            st.error("⚠️ **High Risk Customer**")
+                            st.write("- Implement purchase cooldown periods")
+                            st.write("- Show savings progress reminders")
+                            st.write("- Limit flash sale notifications")
+                        elif risk_cat == "Medium":
+                            st.warning("⚠️ **Moderate Risk Customer**")
+                            st.write("- Send thoughtful product recommendations")
+                            st.write("- Highlight value propositions")
+                            st.write("- Provide comparison tools")
+                        else:
+                            st.success("✅ **Low Risk Customer**")
+                            st.write("- Can receive promotional emails")
+                            st.write("- Good candidate for loyalty programs")
+                            st.write("- Show premium product recommendations")
+                    
+                    with col2:
+                        st.plotly_chart(create_gauge_chart(prediction), use_container_width=True)
+                        
+                    # Comparison chart
+                    st.plotly_chart(create_comparison_chart(prediction), use_container_width=True)
+                    
+                    # Feature importance
+                    st.markdown("### 📊 Key Factors")
+                    factors = {
+                        "Past Impulse Behavior": impulse_purchase_ratio * 100,
+                        "Discount Usage": avg_discount_used,
+                        "Stress Level": stress_level * 10,
+                        "Late Night Activity": late_night_session_ratio * 100,
+                        "Purchase Speed": max(0, 100 - avg_minutes_to_purchase / 5)
+                    }
+                    
+                    fig = px.bar(
+                        x=list(factors.values()),
+                        y=list(factors.keys()),
+                        orientation='h',
+                        labels={'x': 'Impact Score', 'y': 'Factor'},
+                        title="Contributing Factors"
+                    )
+                    fig.update_traces(marker_color='#2196F3')
+                    st.plotly_chart(fig, use_container_width=True)
+
+            except Exception as e:
+                st.error("Prediction failed — model preprocessing raised an error. Check logs.")
+                st.exception(e)
 
 
 def show_model_info_page(metrics):
@@ -370,7 +450,10 @@ def show_model_info_page(metrics):
     
     st.subheader("Model Details")
     st.write(f"**Trained on:** {metrics.get('timestamp', 'Unknown')}")
-    st.write(f"**Model Size:** {metrics.get('model_size_mb', 'Unknown'):.2f} MB")
+    try:
+        st.write(f"**Model Size:** {metrics.get('model_size_mb', 'Unknown'):.2f} MB")
+    except Exception:
+        st.write(f"**Model Size:** {metrics.get('model_size_mb', 'Unknown')}")
     st.write("**Algorithm:** LightGBM Regressor")
     st.write("**Features:** 16 behavioral, demographic, and psychological factors")
 
