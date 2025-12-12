@@ -12,6 +12,9 @@ from pathlib import Path
 import plotly.graph_objects as go
 import plotly.express as px
 
+BASE_DIR = Path(__file__).resolve().parent
+
+
 # Page config
 st.set_page_config(
     page_title="Impulse Buying Predictor",
@@ -65,31 +68,24 @@ st.markdown("""
 
 @st.cache_resource
 def load_model():
-    """Load trained model"""
-    model_path = Path("models/model.joblib")
+    model_path = BASE_DIR / "models" / "model.joblib"
     if not model_path.exists():
-        st.error("❌ Model file not found! Please train the model first.")
+        st.error(f"❌ Model file not found at {model_path}. Please train the model first.")
         st.stop()
     return joblib.load(model_path)
 
-
 @st.cache_data
 def load_feature_info():
-    """Load feature metadata"""
-    info_path = Path("models/feature_info.json")
+    info_path = BASE_DIR / "models" / "feature_info.json"
     if info_path.exists():
-        with open(info_path, "r") as f:
-            return json.load(f)
+        return json.loads(info_path.read_text())
     return None
-
 
 @st.cache_data
 def load_metrics():
-    """Load model metrics"""
-    metrics_path = Path("models/metrics.json")
+    metrics_path = BASE_DIR / "models" / "metrics.json"
     if metrics_path.exists():
-        with open(metrics_path, "r") as f:
-            return json.load(f)
+        return json.loads(metrics_path.read_text())
     return None
 
 
